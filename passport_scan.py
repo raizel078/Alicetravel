@@ -70,6 +70,7 @@ class PassportScanner(QWidget):
         self.status_label = QLabel(self)
         self.status_label.setGeometry(150, 300, 500, 200)
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.status_label.hide()
 
         self.current_file = None
@@ -113,7 +114,9 @@ class PassportScanner(QWidget):
             """)
         self.label.setText(f'File Ready:\n{os.path.basename(path)}')
 
-    @staticmethod
+
+
+
     def convert_pdf_to_img(self, path):
         try:
             doc = fitz.open(path)
