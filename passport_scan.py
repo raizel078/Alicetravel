@@ -54,7 +54,7 @@ class PassportScanner(QWidget):
         self.scan_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.scan_btn.setEnabled(False)
         self.scan_btn.setStyleSheet('background-color: #555555; color:#888888; border-radius: 10px; font-weight:bold;')
-        self.scan_btn.clicked.connect(self.Run_extraction)
+        self.scan_btn.clicked.connect(self.run_extraction)
 
         #clear Button.
         self.clear_btn = QPushButton('Clear', self)
@@ -128,37 +128,47 @@ class PassportScanner(QWidget):
         except Exception as e:
             print(f"PDF Error: {e}")
             return None
-    @staticmethod
+
     def parse_passport_data(self, results):
-        mrz_lines = [line.replace(" ", "").upper() for line in results if
-                     "<<" in line or (len(line) > 30 and "<" in line)]
+        # Clean the lines
+        mrz_lines = [line.replace(" ", "").upper() for line in results if "<" in line]
 
         if len(mrz_lines) < 2:
             return None
 
-        # Line 1: P<IND[SURNAME]<<[GIVEN NAMES]
-        # Line 2: [PASS NO][CHECK]IND[DOB][CHECK][SEX][EXPIRY][CHECK]
-        line1 = mrz_lines[0]
-        line2 = mrz_lines[1]
+        # Line 1 is usually the one starting with P<
+        line1 = next((l for l in mrz_lines if l.startswith('P')), mrz_lines[0])
+        line2 = mrz_lines[1] if mrz_lines[1] != line1 else mrz_lines[0]
 
         try:
-            # 1. Passport Number: First 9 characters of the second MRZ line
-            passport_no = line2[0:9].replace("<", "")
+            header_end = 5
+            name_section = line1[header_end:].strip('<')
 
-            # 2. Names from Line 1
-            # Skip P<IND (first 5 chars)
-            raw_names = line1[5:]
-            name_parts = raw_names.split('<<')
-            surname = name_parts[0].replace('<', ' ').strip()
-            given_name = name_parts[1].replace('<', ' ').strip() if len(name_parts) > 1 else ""
+            # In MRZ, Surname and Given Names are separated by '<<'
+            if '<<' in name_section:
+                surname_part, given_names_part = name_section.split('<<', 1)
+                surname = surname_part.replace('<', ' ').strip()
+                # This is if person have 3 ,4 or more names
+                given_name = given_names_part.replace('<', ' ').strip()
+            else:
+                surname = name_section.replace('<', ' ').strip()
+                given_name = ""
 
-            # 3. Dates (YYMMDD) - Handling common OCR errors
-            dob_raw = line2[13:19]
-            exp_raw = line2[21:27]
+            # -date parsing 2000 years issue from last code
+            def fix_date(raw_date, is_expiry=False):
+                year = int(raw_date[0:2])
+                month = raw_date[2:4]
+                day = raw_date[4:6]
+                # if dob is 2000 for sure
+                if is_expiry:
+                    full_year = 2000 + year
+                else:
+                    full_year = 2000 + year if year < 27 else 1900 + year
+                return f"{day}/{month}/{full_year}"
 
-            # Simple formatting (Assumes 19xx for DOB and 20xx for Expiry)
-            dob = f"{dob_raw[4:6]}/{dob_raw[2:4]}/19{dob_raw[0:2]}"
-            expiry = f"{exp_raw[4:6]}/{exp_raw[2:4]}/20{exp_raw[0:2]}"
+            dob = fix_date(line2[13:19], is_expiry=False)
+            expiry = fix_date(line2[21:27], is_expiry=True)
+            passport_no = line2[0:9].replace('<', '')
 
             return {
                 "no": passport_no,
@@ -168,10 +178,10 @@ class PassportScanner(QWidget):
                 "exp": expiry
             }
         except Exception as e:
-            print(f"Parsing Error: {e}")
+            print(f"Logic Error: {e}")
             return None
 
-    def Run_extraction(self):
+    def run_extraction(self):
         if not hasattr(self, 'current_file') or not self.current_file:
             return
 
@@ -206,12 +216,14 @@ class PassportScanner(QWidget):
 
             data = self.parse_passport_data(results)
             if data:
-                # This is your bulletproof output
+
                 success_msg = (
                     f"✅ VERIFIED\n\n"
                     f"PASS NO: {data['no']}\n"
                     f"NAME: {data['name']} {data['surname']}\n"
-                    f"EXPIRY: {data['exp']}"
+                    f"EXPIRY: {data['exp']}\n"
+                    f"DOB: {data['dob']}\n"
+                    f"Passport Expiry: {data['exp']}"
                 )
                 self.status_label.setText(success_msg)
                 print(f"Parsed Successfully: {data}")
